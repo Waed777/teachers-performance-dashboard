@@ -1,73 +1,133 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from fpdf import FPDF
+import smtplib
+from email.message import EmailMessage
 
-st.set_page_config(page_title="لوحة متابعة المعلمات", layout="wide")
+# ===============================
+# إعداد الصفحة
+# ===============================
+st.set_page_config(
+    page_title="لوحة متابعة أداء المعلمات",
+    layout="wide"
+)
 
-st.title("📊 لوحة متابعة الأداء الأسبوعي")
+st.title("🎓 لوحة متابعة أداء المعلمات – الإدارة التعليمية")
 
-uploaded_file = st.file_uploader("ارفعي ملف المتابعة Excel", type=["xlsx"])
+# ===============================
+# رفع ملف البيانات
+# ===============================
+uploaded_file = st.file_uploader(
+    "📂 ارفعي ملف Excel (البيانات القادمة من Google Form)",
+    type=["xlsx"]
+)
 
-if uploaded_file:
+if uploaded_file is None:
+    st.info("⬆️ من فضلك ارفعي ملف البيانات للمتابعة")
+    st.stop()
 
-    df = pd.read_excel(uploaded_file)
+df = pd.read_excel(uploaded_file)
 
-    # تنظيف الفراغات
-    df.columns = df.columns.str.strip()
+# ===============================
+# تنظيف البيانات الأساسية
+# ===============================
+df = df.dropna(subset=["اسم المعلمة"])
+df["عدد النواقص"] = pd.to_numeric(df["عدد النواقص"], errors="coerce").fillna(0)
 
-    st.subheader("📌 البيانات")
+# ===============================
+# المؤشرات العامة
+# ===============================
+st.subheader("📊 المؤشرات العامة")
 
-    st.dataframe(df)
+col1, col2, col3, col4 = st.columns(4)
 
-    # المؤشرات الرئيسية
-    total_teachers = df["اسم المعلمة"].nunique()
-    total_missing = df["عدد النواقص"].sum()
+عدد_المعلمات = df["اسم المعلمة"].nunique()
+عدد_النواقص_الكلي = int(df["عدد النواقص"].sum())
+عدد_المكتملات = (df["التقييم العام"] == "🌟 ممتاز").sum()
+عدد_يحتاج_متابعة = (df["التقييم العام"] == "⚠️ يحتاج متابعة").sum()
 
-    completed = df[df["عدد النواقص"] == 0].shape[0]
-    need_support = df[df["عدد النواقص"] >= 3].shape[0]
+col1.metric("👩‍🏫 عدد المعلمات", عدد_المعلمات)
+col2.metric("❌ عدد النواقص الكلي", عدد_النواقص_الكلي)
+col3.metric("🌟 المكتملات", عدد_المكتملات)
+col4.metric("⚠️ يحتاج متابعة", عدد_يحتاج_متابعة)
 
-    col1, col2, col3, col4 = st.columns(4)
+# ===============================
+# جدول البيانات
+# ===============================
+st.subheader("📋 جدول المتابعة التفصيلي")
+st.dataframe(df, use_container_width=True)
 
-    col1.metric("عدد المعلمات", total_teachers)
-    col2.metric("عدد النواقص الكلي", total_missing)
-    col3.metric("مكتملات", completed)
-    col4.metric("يحتاج متابعة", need_support)
+# ===============================
+# رسم توزيع النواقص
+# ===============================
+st.subheader("📈 توزيع النواقص لكل معلمة")
 
-    # رسم بياني
-    st.subheader("📈 توزيع النواقص")
+df_plot = df[["اسم المعلمة", "عدد النواقص"]].copy()
+df_plot["اسم المعلمة"] = df_plot["اسم المعلمة"].astype(str)
+df_plot["عدد النواقص"] = pd.to_numeric(df_plot["عدد النواقص"], errors="coerce")
+df_plot = df_plot.dropna()
 
-    fig, ax = plt.subplots()
-    ax.bar(df["اسم المعلمة"], df["عدد النواقص"])
-    plt.xticks(rotation=45)
-    st.pyplot(fig)
+fig, ax = plt.subplots(figsize=(10, 5))
+ax.bar(df_plot["اسم المعلمة"], df_plot["عدد النواقص"])
+ax.set_ylabel("عدد النواقص")
+ax.set_xlabel("اسم المعلمة")
+plt.xticks(rotation=45, ha="right")
+st.pyplot(fig)
 
-    # توليد تقرير PDF لكل معلمة
-    st.subheader("📄 توليد تقرير فردي")
+# ===============================
+# رسم التقييم العام
+# ===============================
+st.subheader("🥧 نسبة التقييم العام")
 
-    teacher_list = df["اسم المعلمة"].unique()
-    selected_teacher = st.selectbox("اختاري المعلمة", teacher_list)
+status_counts = df["التقييم العام"].value_counts()
 
-    if st.button("إنشاء تقرير PDF"):
+fig2, ax2 = plt.subplots()
+ax2.pie(
+    status_counts,
+    labels=status_counts.index,
+    autopct="%1.0f%%",
+    startangle=90
+)
+ax2.axis("equal")
+st.pyplot(fig2)
 
-        teacher_data = df[df["اسم المعلمة"] == selected_teacher].iloc[0]
+# ===============================
+# دالة إرسال الإيميل
+# ===============================
+def send_email(to_email, teacher_name, evaluation, missing_count):
+    msg = EmailMessage()
+    msg["Subject"] = "📄 تقرير المتابعة الأسبوعي"
+    msg["From"] = "YOUR_EMAIL@gmail.com"
+    msg["To"] = to_email
 
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=12)
+    msg.set_content(f"""
+السلام عليكم {teacher_name}
 
-        pdf.cell(200, 10, txt=f"تقرير الأداء - {selected_teacher}", ln=True)
+نود إفادتك بنتيجة المتابعة الأسبوعية:
 
-        pdf.cell(200, 10, txt=f"عدد النواقص: {teacher_data['عدد النواقص']}", ln=True)
-        pdf.cell(200, 10, txt=f"التقييم العام: {teacher_data['التقييم العام']}", ln=True)
+🔹 التقييم العام: {evaluation}
+🔹 عدد النواقص: {missing_count}
 
-        file_name = f"{selected_teacher}_report.pdf"
-        pdf.output(file_name)
+شاكرين ومقدّرين جهودك 🌸
+إدارة المدرسة
+""")
 
-        with open(file_name, "rb") as file:
-            st.download_button(
-                label="تحميل التقرير",
-                data=file,
-                file_name=file_name,
-                mime="application/pdf"
-            )
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login("YOUR_EMAIL@gmail.com", "APP_PASSWORD")
+        server.send_message(msg)
+
+# ===============================
+# زر إرسال الإيميلات
+# ===============================
+st.subheader("📧 إرسال التقييمات بالبريد الإلكتروني")
+
+if st.button("🚀 إرسال التقييم لكل المعلمات"):
+    for _, row in df.iterrows():
+        send_email(
+            row["البريد الإلكتروني للمعلمة"],
+            row["اسم المعلمة"],
+            row["التقييم العام"],
+            int(row["عدد النواقص"])
+        )
+
+    st.success("✅ تم إرسال جميع التقييمات بنجاح")
