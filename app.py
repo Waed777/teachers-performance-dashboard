@@ -1,10 +1,20 @@
 import streamlit as st
 import pandas as pd
+import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="لوحة متابعة المعلمات", layout="wide")
+# ===============================
+# إعداد الصفحة
+# ===============================
+st.set_page_config(
+    page_title="لوحة متابعة أداء المعلمات",
+    layout="wide"
+)
 
 st.title("🎓 لوحة متابعة أداء المعلمات – الإدارة التعليمية")
 
+# ===============================
+# رفع الملف
+# ===============================
 uploaded_file = st.file_uploader(
     "📂 ارفعي ملف Excel (البيانات القادمة من Google Form)",
     type=["xlsx"]
@@ -13,27 +23,18 @@ uploaded_file = st.file_uploader(
 if uploaded_file is not None:
     try:
         df = pd.read_excel(uploaded_file)
-
-        st.success("✅ تم تحميل الملف بنجاح")
-
-        # ===============================
-        # تنظيف أسماء الأعمدة (مهم جدا)
-        # ===============================
         df.columns = df.columns.str.strip()
 
-        st.subheader("📋 معاينة البيانات")
-        st.dataframe(df, use_container_width=True)
+        st.success("✅ تم تحميل الملف بنجاح")
 
         # ===============================
         # تحديد أعمدة نعم / لا تلقائياً
         # ===============================
         yes_no_cols = []
         for col in df.columns:
-            sample_values = df[col].astype(str).unique()
-            if any(v.strip() in ["نعم", "لا"] for v in sample_values):
+            values = df[col].astype(str).str.strip().unique()
+            if any(v in ["نعم", "لا"] for v in values):
                 yes_no_cols.append(col)
-
-        st.info(f"🔍 تم اكتشاف {len(yes_no_cols)} أعمدة نعم/لا")
 
         # ===============================
         # حساب عدد النواقص
@@ -60,7 +61,7 @@ if uploaded_file is not None:
         df["التقييم العام"] = df["عدد النواقص"].apply(evaluate)
 
         # ===============================
-        # المؤشرات
+        # مؤشرات عامة
         # ===============================
         col1, col2, col3, col4 = st.columns(4)
 
@@ -69,11 +70,90 @@ if uploaded_file is not None:
         col3.metric("🌟 المكتملات", int((df["التقييم العام"] == "🌟 ممتاز").sum()))
         col4.metric("⚠️ يحتاج متابعة", int((df["التقييم العام"] == "⚠️ يحتاج متابعة").sum()))
 
-        st.subheader("📊 جدول المتابعة النهائي")
+        # ===============================
+        # جدول البيانات
+        # ===============================
+        st.subheader("📋 جدول المتابعة التفصيلي")
         st.dataframe(df, use_container_width=True)
 
+        # ===============================
+        # رسم: توزيع النواقص
+        # ===============================
+        st.subheader("📈 توزيع النواقص لكل معلمة")
+
+        if "اسم المعلمة" in df.columns:
+            fig, ax = plt.subplots()
+            ax.bar(df["اسم المعلمة"], df["عدد النواقص"])
+            plt.xticks(rotation=45, ha="right")
+            ax.set_ylabel("عدد النواقص")
+            ax.set_xlabel("اسم المعلمة")
+            st.pyplot(fig)
+        else:
+            st.warning("⚠️ لا يوجد عمود (اسم المعلمة)")
+
+        # ===============================
+        # رسم: نسب التقييم
+        # ===============================
+        st.subheader("🥧 نسبة التقييم العام")
+
+        rating_counts = df["التقييم العام"].value_counts()
+        fig2, ax2 = plt.subplots()
+        ax2.pie(
+            rating_counts,
+            labels=rating_counts.index,
+            autopct="%1.0f%%",
+            startangle=90
+        )
+        ax2.axis("equal")
+        st.pyplot(fig2)
+
+        # ===============================
+        # تصدير Excel
+        # ===============================
+        st.subheader("⬇️ تصدير التقرير")
+
+        export_df = df.copy()
+        export_file = "تقرير_أداء_المعلمات.xlsx"
+        export_df.to_excel(export_file, index=False)
+
+        with open(export_file, "rb") as f:
+            st.download_button(
+                "📥 تحميل التقرير Excel",
+                f,
+                file_name=export_file
+            )
+
+        # ===============================
+        # إرسال التقييم (بدون SMTP)
+        # ===============================
+        st.subheader("📧 إرسال التقييمات")
+
+        if "البريد الإلكتروني للمعلمة" in df.columns:
+            for _, row in df.iterrows():
+                email = row["البريد الإلكتروني للمعلمة"]
+                name = row.get("اسم المعلمة", "المعلمة")
+                rating = row["التقييم العام"]
+                missing = row["عدد النواقص"]
+
+                subject = "تقرير الأداء التعليمي"
+                body = f"""
+مرحبًا {name}
+
+تقييمك لهذا الأسبوع: {rating}
+عدد النواقص: {missing}
+
+شاكرين تعاونك 🌷
+"""
+
+                mailto_link = f"mailto:{email}?subject={subject}&body={body}"
+
+                st.markdown(f"📩 [{name} – إرسال التقييم]({mailto_link})")
+        else:
+            st.warning("⚠️ لا يوجد عمود البريد الإلكتروني")
+
     except Exception as e:
-        st.error("❌ حصل خطأ")
+        st.error("❌ حصل خطأ غير متوقع")
         st.exception(e)
+
 else:
     st.info("⬆️ في انتظار رفع الملف")
