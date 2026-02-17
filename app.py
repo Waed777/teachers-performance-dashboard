@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import matplotlib.pyplot as plt
 import smtplib
 from email.message import EmailMessage
 
@@ -8,9 +8,29 @@ from email.message import EmailMessage
 # إعداد الصفحة
 # ===============================
 st.set_page_config(
-    page_title="لوحة متابعة أداء المعلمات",
+    page_title="لوحة متابعة أداء المعلمات – مدارس المنهل",
     layout="wide"
 )
+
+# ===============================
+# تنسيق CSS (عربي + أزرق)
+# ===============================
+st.markdown("""
+<style>
+body {
+    direction: rtl;
+}
+h1, h2, h3 {
+    color: #0A3D62;
+}
+.metric-box {
+    background-color: #EAF2F8;
+    padding: 15px;
+    border-radius: 12px;
+    text-align: center;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ===============================
 # الشعار والعنوان
@@ -22,12 +42,12 @@ with col1:
 
 with col2:
     st.markdown("## 🎓 لوحة متابعة أداء المعلمات – مدارس المنهل")
-    st.markdown("### نظام ذكي لمتابعة الأداء الأسبوعي")
+    st.markdown("### منصة ذكية لمتابعة الأداء التعليمي")
 
 st.divider()
 
 # ===============================
-# رفع الملف
+# رفع ملف Excel
 # ===============================
 uploaded_file = st.file_uploader(
     "📂 ارفعي ملف Excel (البيانات القادمة من Google Form)",
@@ -35,7 +55,7 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is None:
-    st.info("⬆️ بانتظار رفع ملف البيانات")
+    st.info("⬆️ الرجاء رفع ملف البيانات للبدء")
     st.stop()
 
 df = pd.read_excel(uploaded_file)
@@ -55,98 +75,118 @@ c1, c2, c3, c4 = st.columns(4)
 
 c1.metric("👩‍🏫 عدد المعلمات", df["اسم المعلمة"].nunique())
 c2.metric("❌ عدد النواقص الكلي", int(df["عدد النواقص"].sum()))
-c3.metric("🌟 المكتملات", (df["التقييم العام"] == "🌟 ممتاز").sum())
+c3.metric("🌟 ممتاز", (df["التقييم العام"] == "🌟 ممتاز").sum())
 c4.metric("⚠️ يحتاج متابعة", (df["التقييم العام"] == "⚠️ يحتاج متابعة").sum())
 
 # ===============================
-# الجدول
+# جدول المتابعة
 # ===============================
-st.subheader("📋 جدول المتابعة")
+st.subheader("📋 جدول المتابعة التفصيلي")
 st.dataframe(df, use_container_width=True)
 
 # ===============================
 # رسم الأعمدة
 # ===============================
-st.subheader("📈 توزيع النواقص")
+st.subheader("📈 توزيع النواقص لكل معلمة")
 
-fig_bar = px.bar(
-    df,
-    x="اسم المعلمة",
-    y="عدد النواقص",
-    color="عدد النواقص",
-    color_continuous_scale="Blues",
-    text="عدد النواقص"
-)
-st.plotly_chart(fig_bar, use_container_width=True)
+fig, ax = plt.subplots()
+ax.bar(df["اسم المعلمة"], df["عدد النواقص"], color="#1E88E5")
+ax.set_ylabel("عدد النواقص")
+ax.set_xlabel("اسم المعلمة")
+plt.xticks(rotation=45, ha="right")
+st.pyplot(fig)
 
 # ===============================
 # رسم دائري
 # ===============================
 st.subheader("🥧 نسبة التقييم العام")
 
-fig_pie = px.pie(
-    df,
-    names="التقييم العام",
-    hole=0.4,
-    color_discrete_sequence=px.colors.sequential.Blues
+rating_counts = df["التقييم العام"].value_counts()
+
+fig2, ax2 = plt.subplots()
+ax2.pie(
+    rating_counts,
+    labels=rating_counts.index,
+    autopct="%1.1f%%",
+    startangle=90,
+    colors=["#1565C0", "#42A5F5", "#90CAF9"]
 )
-st.plotly_chart(fig_pie, use_container_width=True)
+ax2.axis("equal")
+st.pyplot(fig2)
 
 # ===============================
-# تحليل ذكي (AI-style)
+# تحليل ذكي (AI Insight)
 # ===============================
-st.subheader("🧠 التحليل الذكي")
+st.subheader("🧠 التحليل الذكي للأداء")
 
-def smart_note(row):
+def ai_note(row):
     if row["التقييم العام"] == "🌟 ممتاز":
-        return "أداء متميز – يُوصى بالتكريم."
+        return "أداء استثنائي – مرشحة للتكريم."
     elif row["التقييم العام"] == "🙂 جيد":
-        return "أداء جيد مع فرص تحسين بسيطة."
+        return "أداء جيد – يوصى بدعم بسيط."
     else:
-        return "يحتاج متابعة عاجلة ودعم مباشر."
+        return "يحتاج متابعة عاجلة وخطة تحسين."
 
-df["ملاحظة ذكية"] = df.apply(smart_note, axis=1)
-st.dataframe(df[["اسم المعلمة", "التقييم العام", "ملاحظة ذكية"]], use_container_width=True)
+df["🧠 ملاحظة ذكية"] = df.apply(ai_note, axis=1)
+
+st.dataframe(
+    df[["اسم المعلمة", "التقييم العام", "🧠 ملاحظة ذكية"]],
+    use_container_width=True
+)
 
 # ===============================
-# إرسال الإيميل
+# إرسال البريد الإلكتروني
 # ===============================
 def send_email(to_email, name, evaluation, missing):
-    msg = EmailMessage()
-    msg["Subject"] = "📄 تقرير المتابعة الأسبوعي – مدارس المنهل"
-    msg["From"] = st.secrets["EMAIL_USER"]
-    msg["To"] = to_email
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = "📄 تقرير المتابعة – مدارس المنهل"
+        msg["From"] = st.secrets["EMAIL_USER"]
+        msg["To"] = to_email
 
-    msg.set_content(f"""
+        msg.set_content(f"""
 السلام عليكم {name}
 
-📊 تقرير المتابعة الأسبوعي:
+هذا تقرير المتابعة:
 
-التقييم: {evaluation}
-عدد النواقص: {missing}
+🔹 التقييم: {evaluation}
+🔹 عدد النواقص: {missing}
 
 مع تمنياتنا لك بالتوفيق 🌸
 إدارة مدارس المنهل
 """)
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(
-            st.secrets["EMAIL_USER"],
-            st.secrets["EMAIL_PASS"]
-        )
-        server.send_message(msg)
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(
+                st.secrets["EMAIL_USER"],
+                st.secrets["EMAIL_PASS"]
+            )
+            server.send_message(msg)
+
+        return True
+    except:
+        return False
 
 # ===============================
 # زر الإرسال
 # ===============================
-st.subheader("📧 إرسال التقارير")
+st.subheader("📧 إرسال التقييمات بالبريد الإلكتروني")
 
-if st.button("🚀 إرسال التقييمات لكل المعلمات"):
+if st.button("🚀 إرسال التقارير"):
+    success = 0
+    fail = 0
+
     for _, row in df.iterrows():
-        send_email(
+        if send_email(
             row["البريد الإلكتروني للمعلمة"],
             row["اسم المعلمة"],
             row["التقييم العام"],
             int(row["عدد النواقص"])
-        )
-    st.success("✅ تم إرسال جميع التقارير بنجاح")
+        ):
+            success += 1
+        else:
+            fail += 1
+
+    st.success(f"✅ تم الإرسال بنجاح: {success}")
+    if fail > 0:
+        st.warning(f"⚠️ فشل الإرسال لـ {fail} معلمات")
