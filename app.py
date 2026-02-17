@@ -1,123 +1,128 @@
 # app.py
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import matplotlib.pyplot as plt
 import smtplib
-from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
 
-# ------------------------
-# واجهة التطبيق
-st.set_page_config(page_title="🎓 لوحة متابعة أداء المعلمات", layout="wide", page_icon="📊")
+# ===============================
+# إعداد الصفحة
+st.set_page_config(
+    page_title="لوحة متابعة أداء المعلمات",
+    layout="wide"
+)
+
 st.title("🎓 لوحة متابعة أداء المعلمات – الإدارة التعليمية")
 
-# رفع شعار المدرسة
-st.image("شعار.png", width=120)
+# ===============================
+# رفع الملف
+uploaded_file = st.file_uploader(
+    "📂 ارفعي ملف Excel (البيانات القادمة من Google Form)",
+    type=["xlsx"]
+)
 
-# رفع ملف Excel
-uploaded_file = st.file_uploader("📂 ارفعي ملف Excel (البيانات القادمة من Google Form)", type=["xlsx"])
-if uploaded_file:
+if uploaded_file is not None:
     df = pd.read_excel(uploaded_file)
+    df.fillna("", inplace=True)
 
     # ===============================
-    # تنظيف وتحضير البيانات
-    df.fillna("", inplace=True)
-    actions = ["هل تم رفع التحضير؟", "هل تم رفع محاضرات الفيديو؟",
-               "هل تم رفع الواجبات؟", "هل تم رفع الاختبارات؟",
-               "هل تم رفع المقاطع الإثرائية؟", "هل تم رفع تسجيل الحصص"]
+    # حساب عدد النواقص
+    yes_no_cols = [
+        "هل تم رفع التحضير؟",
+        "هل تم رفع الواجبات؟",
+        "هل تم رفع محاضرات الفيديوم",
+        "هل تم رفع تسجيل الحصص",
+        "هل تم رفع المقاطع الاثرائية"
+    ]
 
-    # حالة كل خانة (مكتمل/ناقص)
-    for col in actions:
-        status_col = f"حالة {col.split(' ')[-1]}"
-        df[status_col] = df[col].apply(lambda x: "✅ مكتمل" if x.strip().lower() == "نعم" else "❌ ناقص")
+    def count_missing(row):
+        return sum(1 for c in yes_no_cols if str(row[c]).strip() != "نعم")
 
-    # عدد النواقص
-    df["عدد النواقص"] = df[[f"حالة {col.split(' ')[-1]}" for col in actions]].apply(lambda row: sum(1 if val=="❌ ناقص" else 0 for val in row), axis=1)
+    df["عدد النواقص"] = df.apply(count_missing, axis=1)
 
+    # ===============================
     # التقييم العام
-    def evaluate(row):
-        if row["عدد النواقص"] == 0:
+    def evaluate(m):
+        if m == 0:
             return "🌟 ممتاز"
-        elif row["عدد النواقص"] <= 2:
+        elif m <= 2:
             return "🙂 جيد"
         else:
             return "⚠️ يحتاج متابعة"
-    df["التقييم العام"] = df.apply(evaluate, axis=1)
+
+    df["التقييم العام"] = df["عدد النواقص"].apply(evaluate)
 
     # ===============================
-    # المؤشرات العامة
-    st.subheader("📊 المؤشرات العامة")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("👩‍🏫 عدد المعلمات", df.shape[0])
-    col2.metric("❌ عدد النواقص الكلي", df["عدد النواقص"].sum())
-    col3.metric("🌟 المكتملات", (df["التقييم العام"]=="🌟 ممتاز").sum())
-    col4.metric("⚠️ يحتاج متابعة", (df["التقييم العام"]=="⚠️ يحتاج متابعة").sum())
+    # مؤشرات عامة
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("👩‍🏫 عدد المعلمات", len(df))
+    c2.metric("❌ عدد النواقص الكلي", int(df["عدد النواقص"].sum()))
+    c3.metric("🌟 المكتملات", int((df["التقييم العام"] == "🌟 ممتاز").sum()))
+    c4.metric("⚠️ يحتاج متابعة", int((df["التقييم العام"] == "⚠️ يحتاج متابعة").sum()))
 
     # ===============================
-    # جدول المتابعة التفصيلي
+    # جدول
     st.subheader("📋 جدول المتابعة التفصيلي")
-    st.dataframe(df)
+    st.dataframe(df, use_container_width=True)
 
     # ===============================
-    # رسم توزيع النواقص لكل معلمة
+    # رسم توزيع النواقص
     st.subheader("📈 توزيع النواقص لكل معلمة")
-    fig = px.bar(df, x="اسم المعلمة", y="عدد النواقص", text="عدد النواقص", color="عدد النواقص",
-                 color_continuous_scale="Blues")
-    st.plotly_chart(fig, use_container_width=True)
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.bar(df["اسم المعلمة"].astype(str), df["عدد النواقص"])
+    ax.set_ylabel("عدد النواقص")
+    ax.set_xlabel("اسم المعلمة")
+    plt.xticks(rotation=45, ha="right")
+    st.pyplot(fig)
 
     # ===============================
-    # رسم نسبة التقييم العام
+    # رسم التقييم العام
     st.subheader("🥧 نسبة التقييم العام")
-    fig2 = px.pie(df, names="التقييم العام", title="نسبة التقييم العام للمعلمات", color="التقييم العام",
-                  color_discrete_map={"🌟 ممتاز":"blue", "🙂 جيد":"lightblue", "⚠️ يحتاج متابعة":"red"})
-    st.plotly_chart(fig2, use_container_width=True)
+    eval_counts = df["التقييم العام"].value_counts()
+    fig2, ax2 = plt.subplots()
+    ax2.pie(
+        eval_counts.values,
+        labels=eval_counts.index,
+        autopct="%1.0f%%",
+        startangle=90
+    )
+    ax2.axis("equal")
+    st.pyplot(fig2)
 
     # ===============================
-    # إرسال التقييمات بالبريد الإلكتروني
+    # إرسال الإيميلات (اختياري)
     st.subheader("📧 إرسال التقييمات بالبريد الإلكتروني")
-    st.info("ملاحظة: ضع بيانات بريدك وApp Password الخاصة بـ Gmail قبل الإرسال")
-    sender_email = st.text_input("📧 بريدك الإلكتروني (Gmail)")
-    app_password = st.text_input("🔑 App Password", type="password")
+
+    sender = st.text_input("📧 بريد الإرسال (Gmail)")
+    password = st.text_input("🔑 App Password", type="password")
 
     if st.button("إرسال التقييمات"):
-        if sender_email and app_password:
-            try:
-                server = smtplib.SMTP("smtp.gmail.com", 587)
-                server.starttls()
-                server.login(sender_email, app_password)
+        try:
+            server = smtplib.SMTP("smtp.gmail.com", 587)
+            server.starttls()
+            server.login(sender, password)
 
-                for idx, row in df.iterrows():
-                    msg = MIMEMultipart()
-                    msg["From"] = sender_email
-                    msg["To"] = row["البريد الإلكتروني للمعلمة"]
-                    msg["Subject"] = "تقييم أداءك الأسبوعي"
+            for _, row in df.iterrows():
+                msg = MIMEMultipart()
+                msg["From"] = sender
+                msg["To"] = row["البريد الإلكتروني للمعلمة"]
+                msg["Subject"] = "تقييم الأداء التعليمي"
 
-                    # نص الرسالة
-                    body = f"""
-                    مرحبًا {row['اسم المعلمة']}،
+                body = f"""
+مرحبًا {row['اسم المعلمة']}
 
-                    هذا تقييمك للأسبوع {row['"الأسبوع\nالأسبوع السادس"']}:
+عدد النواقص: {row['عدد النواقص']}
+التقييم العام: {row['التقييم العام']}
 
-                    عدد النواقص: {row['عدد النواقص']}
-                    التقييم العام: {row['التقييم العام']}
-                    """
+مع خالص التقدير 🌷
+"""
+                msg.attach(MIMEText(body, "plain"))
+                server.send_message(msg)
 
-                    msg.attach(MIMEText(body, "plain"))
+            server.quit()
+            st.success("✅ تم إرسال جميع التقييمات بنجاح")
 
-                    # إضافة شعار كصورة في البريد
-                    with open("شعار.png", "rb") as img_file:
-                        img = MIMEImage(img_file.read())
-                        img.add_header("Content-ID", "<logo>")
-                        img.add_header("Content-Disposition", "inline", filename="شعار.png")
-                        msg.attach(img)
+        except Exception as e:
+            st.error("❌ فشل إرسال البريد – تأكدي من App Password")
 
-                    server.send_message(msg)
-
-                server.quit()
-                st.success("✅ تم إرسال جميع التقييمات بنجاح!")
-
-            except Exception as e:
-                st.error(f"❌ حدث خطأ أثناء الإرسال: {e}")
-        else:
-            st.warning("⚠️ الرجاء إدخال بريدك وApp Password قبل الإرسال.")
